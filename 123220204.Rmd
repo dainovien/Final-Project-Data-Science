@@ -1,0 +1,214 @@
+---
+title: "APP"
+author: "Dainovien Marchmaurrel DAS _ 123220215"
+date: "2024-11-30"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the *Knit* button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+# load library yang dibutuhkan 
+library(shiny)
+library(shinydashboard)
+library(ggplot2)
+library(dplyr)
+library(vroom)
+library(plotly)
+```
+
+```{r}
+# load dataset
+path = "F:/Dainovien/kuliah/Semester5/prakDS/project_123220215/dataset2.csv" 
+data_penduduk = vroom(path)
+```
+
+```{r}
+# Preprocessing Data: Data difilter untuk mengambil kolom numerik yang relevan (luas wilayah dan kepadatan penduduk), kemudian diskalakan menggunakan fungsi scale() agar nilai-nilai dalam data setara.
+
+data_clustering = data_penduduk %>% select(-Kota, -tahun)
+data_scaled = data_clustering %>% scale()
+head(data_scaled)
+```
+
+```{r}
+# Melakukan clustering dgn metode K-Means.
+
+set.seed(123)
+kmeans_result = kmeans(
+  data_scaled,
+  centers = 3, 
+  nstart = 54 
+)
+data_penduduk$cluster = as.factor(kmeans_result$cluster)
+View(data_penduduk)
+
+
+```
+
+```{r}
+# Menentukan jumlah cluster optimal dgn metode Elbow.
+wss = sapply(1:10, function(k){
+  set.seed(123)
+  kmeans(
+    data_scaled,
+    center = k,
+    nstart = 54
+  )$tot.withinss
+})
+
+elbow_data = data.frame(
+  k = 1:10,
+  wss = wss
+)
+
+ggplot(
+  data = elbow_data,
+  aes(
+    x = k,
+    y = wss
+  )
+) + geom_line(
+  color = "blue",
+  linewidth = 2
+) + geom_point(
+  color = "red",
+  size = 3
+) + labs(
+  title = "Elbow Method untuk Mencari Nilai k Optimal",
+  x = "Jumlah Cluster (k)",
+  y = "Total Within-Cluster Sum of Squares (WSS)"
+)
+
+```
+```{r}
+ggplot(
+  data = data_penduduk,
+  aes(
+    x = luas,
+    y = kepadatan_penduduk,
+    color = cluster
+  )
+) + geom_point(
+  size = 3
+) + labs(
+  title = "Clustering Kepadatan Penduduk",
+  x = "Luas Wilayah (km²)",
+  y = "Kepadatan Penduduk"
+) + scale_x_log10()
+
+```
+
+
+```{r}
+# Rangkuman cluster
+cluster_summary <- data_penduduk %>%
+  group_by(cluster) %>%
+  summarise(
+    avg_kepadatan = mean(kepadatan_penduduk),
+    avg_luas = mean(luas)
+  )
+cluster_summary
+```
+
+```{r}
+# Antarmuka Aplikasi Shiny (UI dan Server)
+ui <- fluidPage(
+  titlePanel("Clustering Pola Pertumbuhan Kepadatan Penduduk"),
+  "Grafik Elbow Method",
+  plotOutput("plot"),
+  "Disarankan untuk menggunakan 3 sampai 4 cluster berdasarkan elbow method diatas",
+  fluidRow(
+    column(4,
+    numericInput("num", "Custom Jumlah Cluster", value = 0, min = 0, max = 10),
+    actionButton("train", "Train Data", class = "btn btn-success"),
+    ),
+  ),
+  fluidRow( 
+    column(12,
+    textOutput("titletable"),
+      tableOutput("table"),
+      textOutput("titlecluster"),
+      tableOutput("cluster"),
+    ),
+  ),
+  textOutput("titlegraph"),
+  plotOutput("graph")
+)
+
+server <- function(input, output, session) {
+  output$plot <- renderPlot(
+    ggplot(
+      data = elbow_data,
+      aes(
+        x = k,
+        y = wss
+      )
+    ) + geom_line(
+      color = "blue",
+      linewidth = 2
+    ) + geom_point(
+      color = "red",
+      size = 3
+    ) + labs(
+      title = "Elbow Method untuk Mencari Nilai k Optimal",
+      x = "Jumlah Cluster (k)",
+      y = "Total Within-Cluster Sum of Squares (WSS)"
+    )
+  )
+
+  observeEvent(input$train, {
+    set.seed(123)
+    kmeans_result = kmeans(
+      data_scaled,
+      centers = input$num,
+      nstart = 54
+    )
+    data_penduduk$cluster = as.factor(kmeans_result$cluster)
+    
+    cluster_summary <- data_penduduk %>%
+      group_by(cluster) %>%
+      summarise(
+        avg_kepadatan = mean(kepadatan_penduduk),
+        avg_luas = mean(luas)
+      )
+    
+    output$titletable <- renderText("Table Hasil Clustering Dataset")
+    output$table <- renderTable(
+      head(data_penduduk)
+    )
+    output$titlegraph <- renderText("Grafik Persebaran Cluster Berdasarkan Luas dan Kepadatan Penduduk")
+    output$graph <- renderPlot(
+      ggplot(
+        data = data_penduduk,
+        aes(
+          x = luas,
+          y = kepadatan_penduduk,
+          color = cluster
+        )
+      ) + geom_point(
+        size = 3
+      ) + labs(
+        title = "Clustering Kepadatan Penduduk",
+        x = "Luas Wilayah (km²)",
+        y = "Kepadatan Penduduk"
+      ) + scale_x_log10()
+    )
+    output$titlecluster <- renderText("Rata-rata Luas dan Kepadatan Penduduk untuk Setiap Cluster")
+    output$cluster <- renderTable(
+      cluster_summary
+    )
+  })
+}
+
+shinyApp(ui, server)
+
+```
+
